@@ -391,13 +391,27 @@ impl Encoding {
     pub fn merge<I: IntoIterator<Item = Encoding>>(encodings: I, growing_offsets: bool) -> Self {
         let mut encoding = Encoding::default();
 
-        // TODO this is suboptimal as we're doing this iteratively instead of preallocating
-        // all the encodings sizes all at once and only copying into this preallocated vector
-        // https://github.com/huggingface/tokenizers/pull/1049
+        // 优化：首先收集所有 encodings 并预分配内存
+        let encodings_vec: Vec<Encoding> = encodings.into_iter().collect();
+        if encodings_vec.is_empty() {
+            return encoding;
+        }
 
-        // In order to fix, we just need to preallocate all vectors, then copy everything
-        // into it (and deal with overlowings correctly)
-        for sub in encodings {
+        // 计算总大小并预分配内存
+        let total_len: usize = encodings_vec.iter().map(|e| e.len()).sum();
+        let total_overflowing: usize = encodings_vec.iter().map(|e| e.overflowing.len()).sum();
+
+        encoding.ids.reserve(total_len);
+        encoding.type_ids.reserve(total_len);
+        encoding.tokens.reserve(total_len);
+        encoding.words.reserve(total_len);
+        encoding.offsets.reserve(total_len);
+        encoding.special_tokens_mask.reserve(total_len);
+        encoding.attention_mask.reserve(total_len);
+        encoding.overflowing.reserve(total_overflowing);
+
+        // 然后逐个合并
+        for sub in encodings_vec {
             encoding.merge_with(sub, growing_offsets);
         }
 
@@ -434,6 +448,16 @@ impl Encoding {
         // Finish by merging ourself with the other encoding
         let original_self_len = self.len(); // Must be before any modification to self.ids
 
+        // 优化：预分配内存以减少重新分配
+        let pair_len = pair.ids.len();
+        self.ids.reserve(pair_len);
+        self.type_ids.reserve(pair_len);
+        self.tokens.reserve(pair_len);
+        self.words.reserve(pair_len);
+        self.offsets.reserve(pair_len);
+        self.special_tokens_mask.reserve(pair_len);
+        self.attention_mask.reserve(pair_len);
+
         self.sequence_ranges
             .extend(pair.sequence_ranges.into_iter().map(|(seq_id, range)| {
                 (
@@ -451,11 +475,11 @@ impl Encoding {
         } else {
             0
         };
+        // 优化：避免中间 collect，直接 extend
         self.offsets.extend(
             pair.offsets
                 .into_iter()
-                .map(|(start, end)| (start + starting_offset, end + starting_offset))
-                .collect::<Vec<_>>(),
+                .map(|(start, end)| (start + starting_offset, end + starting_offset)),
         );
         self.special_tokens_mask.extend(pair.special_tokens_mask);
         self.attention_mask.extend(pair.attention_mask);
@@ -484,6 +508,9 @@ impl Encoding {
 
         match direction {
             PaddingDirection::Left => {
+                // 优化：预分配 pad token 的 String，避免重复分配
+                let pad_token_owned = pad_token.to_owned();
+
                 self.ids = (0..pad_length)
                     .map(|_| pad_id)
                     .chain(self.ids.drain(..))
@@ -493,7 +520,7 @@ impl Encoding {
                     .chain(self.type_ids.drain(..))
                     .collect();
                 self.tokens = (0..pad_length)
-                    .map(|_| pad_token.to_owned())
+                    .map(|_| pad_token_owned.clone())
                     .chain(self.tokens.drain(..))
                     .collect();
                 self.words = (0..pad_length)
@@ -519,10 +546,13 @@ impl Encoding {
                     });
             }
             PaddingDirection::Right => {
+                // 优化：预分配 pad token 的 String，避免重复分配
+                let pad_token_owned = pad_token.to_owned();
+
                 self.ids.extend((0..pad_length).map(|_| pad_id));
                 self.type_ids.extend((0..pad_length).map(|_| pad_type_id));
                 self.tokens
-                    .extend((0..pad_length).map(|_| pad_token.to_owned()));
+                    .extend((0..pad_length).map(|_| pad_token_owned.clone()));
                 self.words.extend((0..pad_length).map(|_| None));
                 self.attention_mask.extend((0..pad_length).map(|_| 0));
                 self.special_tokens_mask.extend((0..pad_length).map(|_| 1));
