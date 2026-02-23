@@ -33,7 +33,8 @@ def benchmark_batch(model: str, documents: list[str], num_threads: int, document
     print(
         f"num_threads: {num_threads}, data size: {readable_size}, documents: {len(documents)} Avg Length: {document_length:.0f}"
     )
-    filename = hf_hub_download(MODEL_ID, "original/tokenizer.model")
+    # 使用本地下载的 tokenizer 文件
+    filename = "llama3_tokenizer/LLM-Research/Meta-Llama-3___1-8B/original/tokenizer.model"
     mergeable_ranks = load_tiktoken_bpe(filename)
     pat_str = r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"
     num_reserved_special_tokens = 256
@@ -59,7 +60,15 @@ def benchmark_batch(model: str, documents: list[str], num_threads: int, document
     )
     out = enc.encode("This is a test")
 
-    hf_enc = Tokenizer.from_pretrained(model)
+    # 使用本地下载的 tokenizer 文件创建 Tokenizer
+    import json
+    from tokenizers.models import BPE
+    from tokenizers import Tokenizer
+    from tokenizers.pre_tokenizers import Whitespace
+
+    # 从本地文件加载 tokenizer
+    tokenizer_path = "llama3_tokenizer/LLM-Research/Meta-Llama-3___1-8B/tokenizer.json"
+    hf_enc = Tokenizer.from_file(tokenizer_path)
     out2 = hf_enc.encode("This is a test", add_special_tokens=False).ids
 
     assert out == out2, "sanity check"
