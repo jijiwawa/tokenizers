@@ -389,7 +389,7 @@ impl BpeTrainer {
                 let mut where_to_update: AHashMap<Pair, AHashSet<usize>> = AHashMap::new();
 
                 for window in word.get_chars().windows(2) {
-                    let cur_pair: Pair = (window[0], window[1]);
+                    let cur_pair: Pair = Pair::from((window[0], window[1]));
 
                     // Initialize pair_counts and where_to_update for this pair if we just saw it
                     // Then update counts
@@ -708,9 +708,9 @@ mod tests {
         // tokenization, and 'id' is the vocab id of the symbol resulting from merging
         // the pair of symbols in the corresponding key.
         let expected_merges: AHashMap<Pair, (u32, u32)> = [
-            ((17, 11), (0, 22)), // 'r' + 'e'  -> 're'
-            ((8, 22), (1, 23)),  // 'a' + 're' -> 'are'
-            ((13, 18), (2, 24)), // 'i' + 's'  -> 'is'
+            (Pair(17, 11), (0, 22)), // 'r' + 'e'  -> 're'
+            (Pair(8, 22), (1, 23)),  // 'a' + 're' -> 'are'
+            (Pair(13, 18), (2, 24)), // 'i' + 's'  -> 'is'
         ]
         .iter()
         .cloned()

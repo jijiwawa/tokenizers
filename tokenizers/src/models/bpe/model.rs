@@ -183,11 +183,15 @@ impl BpeBuilder {
                 let b_id = vocab
                     .get(&b)
                     .ok_or_else(|| Error::MergeTokenOutOfVocabulary(b.to_owned()))?;
-                let new_token = format!("{}{}", a, &b[prefix_len..]);
+                // 优化：预分配内存减少分配次数
+                let b_suffix = &b[prefix_len..];
+                let mut new_token = String::with_capacity(a.len() + b_suffix.len());
+                new_token.push_str(&a);
+                new_token.push_str(b_suffix);
                 let new_id = vocab
                     .get(&new_token)
                     .ok_or(Error::MergeTokenOutOfVocabulary(new_token))?;
-                Ok(((*a_id, *b_id), (i as u32, *new_id)))
+                Ok((Pair(*a_id, *b_id), (i as u32, *new_id)))
             })
             .collect::<Result<MergeMap>>()?;
 
@@ -383,30 +387,48 @@ impl BPE {
         let mut indices = w.char_indices().map(|(idx, _)| idx).peekable();
         let mut word = Word::with_capacity(w.len());
         let mut unk: Option<(u32, usize)> = None;
+        
+        // 预计算前缀和后缀长度以优化内存分配
+        let prefix_len = self.continuing_subword_prefix.as_ref().map(|p| p.len()).unwrap_or(0);
+        let suffix_len = self.end_of_word_suffix.as_ref().map(|s| s.len()).unwrap_or(0);
+        
         while let Some(i) = indices.next() {
             let end = indices.peek();
             let is_first = i == 0;
             let is_last = end.is_none();
 
-            let mut s = if let Some(e) = end {
-                Cow::Borrowed(&w[i..*e])
+            let char_slice = if let Some(e) = end {
+                &w[i..*e]
             } else {
-                Cow::Borrowed(&w[i..])
+                &w[i..]
             };
-            let byte_len = s.len();
-
-            // Add the `continuing_subword_prefix` if relevant
-            if !is_first {
-                if let Some(ref prefix) = self.continuing_subword_prefix {
-                    s = format!("{prefix}{s}").into()
+            let byte_len = char_slice.len();
+            
+            // 优化字符串操作：预分配内存减少分配次数
+            let s = if !is_first && prefix_len > 0 || is_last && suffix_len > 0 {
+                let mut temp = String::with_capacity(prefix_len + byte_len + suffix_len);
+                
+                // 添加前缀
+                if !is_first {
+                    if let Some(ref prefix) = self.continuing_subword_prefix {
+                        temp.push_str(prefix);
+                    }
                 }
-            }
-            // Add the `end_of_word_suffix` if relevant
-            if is_last {
-                if let Some(ref suffix) = self.end_of_word_suffix {
-                    s = format!("{s}{suffix}").into()
+                
+                // 添加字符
+                temp.push_str(char_slice);
+                
+                // 添加后缀
+                if is_last {
+                    if let Some(ref suffix) = self.end_of_word_suffix {
+                        temp.push_str(suffix);
+                    }
                 }
-            }
+                
+                Cow::Owned(temp)
+            } else {
+                Cow::Borrowed(char_slice)
+            };
 
             if let Some(id) = self.vocab.get(s.as_ref()) {
                 if let Some((unk_id, unk_len)) = unk {
@@ -416,12 +438,21 @@ impl BPE {
                 word.add(*id, byte_len);
             } else {
                 if self.byte_fallback {
+                    // 优化：预分配字节回退字符串，减少内存分配
                     let tokens: Option<Vec<_>> = s
                         .bytes()
                         .map(|b| -> Option<&u32> {
-                            let code = format!("<{b:#04X}>");
-
-                            self.vocab.get(&code)
+                            // 使用静态缓冲区和固定长度字符串
+                            let mut code_buf = [0u8; 6]; // "<0xXX>"格式固定长度为6
+                            code_buf[0] = b'<';
+                            code_buf[1] = b'0';
+                            code_buf[2] = b'x';
+                            code_buf[3] = b"0123456789ABCDEF"[(b >> 4) as usize];
+                            code_buf[4] = b"0123456789ABCDEF"[(b & 0xF) as usize];
+                            code_buf[5] = b'>';
+                            
+                            let code = unsafe { std::str::from_utf8_unchecked(&code_buf) };
+                            self.vocab.get(code)
                         })
                         .collect();
                     if let Some(tokens) = tokens {
@@ -754,7 +785,7 @@ mod tests {
         let bpe = builder.build().unwrap();
 
         // Check merges.
-        assert_eq!(bpe.merges.get(&(0, 1)).unwrap(), &(0u32, 3u32));
+        assert_eq!(bpe.merges.get(&Pair(0, 1)).unwrap(), &(0u32, 3u32));
 
         // Check vocab.
         assert_eq!(bpe.vocab.get("a").unwrap(), &0u32);

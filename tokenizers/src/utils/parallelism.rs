@@ -12,6 +12,22 @@ use std::sync::atomic::Ordering;
 // Re-export rayon current_num_threads
 pub use rayon::current_num_threads;
 
+/// 获取适合当前架构的最佳线程数
+/// ARM架构上使用更保守的线程数配置，以避免过多的上下文切换开销
+pub fn optimal_num_threads() -> usize {
+    let core_count = std::thread::available_parallelism().unwrap().get();
+    
+    #[cfg(target_arch = "aarch64")] {
+        // ARM架构上使用更保守的线程数配置
+        // 对于ARM，通常最佳线程数为核心数或核心数+1，避免过多上下文切换
+        std::cmp::min(core_count, core_count + 1)
+    }
+    #[cfg(not(target_arch = "aarch64"))] {
+        // 其他架构保持默认核心数
+        core_count
+    }
+}
+
 pub const ENV_VARIABLE: &str = "TOKENIZERS_PARALLELISM";
 
 static USED_PARALLELISM: AtomicBool = AtomicBool::new(false);

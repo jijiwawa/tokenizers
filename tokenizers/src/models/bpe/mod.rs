@@ -6,7 +6,43 @@ mod serialization;
 pub mod trainer;
 mod word;
 
-type Pair = (u32, u32);
+use std::hash::{Hash, Hasher};
+
+
+/// 带有内存对齐的Pair类型，优化ARM架构下的访问效率
+#[repr(align(16))] // ARM64上16字节对齐
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pair(pub u32, pub u32);
+
+impl From<(u32, u32)> for Pair {
+    fn from((first, second): (u32, u32)) -> Self {
+        Pair(first, second)
+    }
+}
+
+impl From<Pair> for (u32, u32) {
+    fn from(pair: Pair) -> Self {
+        (pair.0, pair.1)
+    }
+}
+
+impl PartialOrd for Pair {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        (self.0, self.1).partial_cmp(&(other.0, other.1))
+    }
+}
+
+impl Ord for Pair {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.0, self.1).cmp(&(other.0, other.1))
+    }
+}
+
+impl Hash for Pair {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self.0, self.1).hash(state);
+    }
+}
 
 /// Errors that can be encountered while using or constructing a `BPE` model.
 #[derive(thiserror::Error, Debug)]

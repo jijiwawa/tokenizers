@@ -4,7 +4,12 @@ use std::hash::Hash;
 use std::sync::RwLock;
 
 /// The default capacity for a `BPE`'s internal cache.
-pub static DEFAULT_CACHE_CAPACITY: usize = 10_000;
+/// 根据目标架构调整缓存大小以优化性能
+#[cfg(target_arch = "aarch64")]
+pub static DEFAULT_CACHE_CAPACITY: usize = 16_384; // ARM64上使用较大的缓存大小，利用其更大的L2缓存
+
+#[cfg(not(target_arch = "aarch64"))]
+pub static DEFAULT_CACHE_CAPACITY: usize = 10_000; // 其他架构保持原大小
 /// The maximum length we should cache in a model
 /// Strings that are too long have minimal chances to cache hit anyway
 pub static MAX_LENGTH: usize = 256;

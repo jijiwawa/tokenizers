@@ -134,9 +134,9 @@ impl Word {
 
                 // If there are other characters before the pair
                 if i > 0 {
-                    changes.push(((self.symbols[i - 1].c, first.c), -1));
+                    changes.push((Pair(self.symbols[i - 1].c, first.c), -1));
                     if self.symbols[i - 1].len + new_s.len < max_length {
-                        changes.push(((self.symbols[i - 1].c, replacement), 1));
+                        changes.push((Pair(self.symbols[i - 1].c, replacement), 1));
                     }
                 }
 
@@ -146,9 +146,9 @@ impl Word {
 
                 // If there are other characters after the pair
                 if i < self.symbols.len() - 1 {
-                    changes.push(((second.c, self.symbols[i + 1].c), -1));
+                    changes.push((Pair(second.c, self.symbols[i + 1].c), -1));
                     if self.symbols[i + 1].len + new_s.len < max_length {
-                        changes.push(((replacement, self.symbols[i + 1].c), 1));
+                        changes.push((Pair(replacement, self.symbols[i + 1].c), 1));
                     }
                 }
             }
@@ -168,7 +168,7 @@ impl Word {
                 .windows(2)
                 .enumerate()
                 .filter_map(|(index, window)| {
-                    let pair = (window[0].c, window[1].c);
+                    let pair = Pair(window[0].c, window[1].c);
                     merges.get(&pair).map(|m| Merge {
                         pos: index,
                         rank: m.0,
@@ -196,7 +196,7 @@ impl Word {
                 let right = self.symbols[next_pos];
 
                 // Make sure we are not processing an expired queue entry
-                let target_new_pair = (self.symbols[top.pos].c, right.c);
+                let target_new_pair = Pair(self.symbols[top.pos].c, right.c);
                 if merges
                     .get(&target_new_pair)
                     .is_none_or(|(_, new_id)| *new_id != top.new_id)
@@ -219,7 +219,7 @@ impl Word {
                 if current.prev >= 0 {
                     let prev = current.prev as usize;
                     let prev_symbol = self.symbols[prev];
-                    let new_pair = (prev_symbol.c, current.c);
+                    let new_pair = Pair(prev_symbol.c, current.c);
                     if let Some((rank, new_id)) = merges.get(&new_pair) {
                         queue.push(Merge {
                             pos: current.prev as usize,
@@ -233,7 +233,7 @@ impl Word {
                 let next = current.next as usize;
                 if next < self.symbols.len() {
                     let next_symbol = self.symbols[next];
-                    let new_pair = (current.c, next_symbol.c);
+                    let new_pair = Pair(current.c, next_symbol.c);
                     if let Some((rank, new_id)) = merges.get(&new_pair) {
                         queue.push(Merge {
                             pos: top.pos,
@@ -308,10 +308,10 @@ mod tests {
         assert_eq!(
             changes,
             &[
-                ((1u32, 2u32), -1i32), // count for ('e', 'l') should be decreased by 1.
-                ((1u32, 4u32), 1i32),  // count for ('e', 'll') should be increased by 1.
-                ((2u32, 3u32), -1i32), // count for ('l', 'o') should be decreased by 1.
-                ((4u32, 3u32), 1i32),  // count for ('ll', 'o') should be increased by 1.
+                (Pair(1u32, 2u32), -1i32), // count for ('e', 'l') should be decreased by 1.
+                (Pair(1u32, 4u32), 1i32),  // count for ('e', 'll') should be increased by 1.
+                (Pair(2u32, 3u32), -1i32), // count for ('l', 'o') should be decreased by 1.
+                (Pair(4u32, 3u32), 1i32),  // count for ('ll', 'o') should be increased by 1.
             ]
         );
     }
@@ -343,10 +343,10 @@ mod tests {
         assert_eq!(
             changes,
             &[
-                ((1u32, 2u32), -1i32), // count for ('e', 'l') should be decreased by 1.
-                // ((1u32, 4u32), 1i32),  Missing since this would be larger than 2
-                ((2u32, 3u32), -1i32), // count for ('l', 'o') should be decreased by 1.
-                                       // ((4u32, 3u32), 1i32), Missing since this would be larger than 2
+                (Pair(1u32, 2u32), -1i32), // count for ('e', 'l') should be decreased by 1.
+                // (Pair(1u32, 4u32), 1i32),  Missing since this would be larger than 2
+                (Pair(2u32, 3u32), -1i32), // count for ('l', 'o') should be decreased by 1.
+                                           // (Pair(4u32, 3u32), 1i32), Missing since this would be larger than 2
             ]
         );
     }

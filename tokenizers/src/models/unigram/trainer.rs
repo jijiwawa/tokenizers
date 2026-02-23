@@ -317,7 +317,7 @@ impl UnigramTrainer {
         // Second, segments all sentences to compute likelihood
         // with a unigram language model. inverted[i] stores
         // the set of sentence index where the sentencepieces[i] appears.
-        let chunk_size = std::cmp::max(sentences.len() / current_num_threads(), 1);
+        let chunk_size = std::cmp::max(sentences.len() / optimal_num_threads(), 1);
         let indexed_sentences: Vec<(usize, &Sentence)> = sentences.iter().enumerate().collect();
         let collected: (f64, Vec<f64>, Vec<Vec<usize>>) = indexed_sentences
             .maybe_par_chunks(chunk_size)
@@ -451,7 +451,7 @@ impl UnigramTrainer {
     fn run_e_step(&self, model: &Unigram, sentences: &[Sentence]) -> (f64, u32, Vec<f64>) {
         let all_sentence_freq: u32 = sentences.iter().map(|(_a, b)| *b).sum();
 
-        let chunk_size = std::cmp::max(sentences.len() / current_num_threads(), 1);
+        let chunk_size = std::cmp::max(sentences.len() / optimal_num_threads(), 1);
         let collected: (f64, u32, Vec<f64>) = sentences
             .maybe_par_chunks(chunk_size)
             .map(|sentences_chunk| {

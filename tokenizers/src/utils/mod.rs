@@ -1,6 +1,7 @@
 pub(crate) mod cache;
 #[cfg(feature = "http")]
 pub(crate) mod from_pretrained;
+pub mod neon_utils;
 
 #[cfg(all(feature = "fancy-regex", not(feature = "onig")))]
 mod fancy;
