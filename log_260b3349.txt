@@ -1,0 +1,55 @@
+(TraeAI-4) ~/Desktop/code/tokenizers [0] $  trae-sandbox 'cd /Users/a111/Desktop/code/tokenizers && git checkout 260b334
+9 && source $HOME/.cargo/env && cd tokenizers && cargo build --release && cd .. && python3 bindings/python/benches/test_
+tiktoken.py > log_260b3349.txt 2>&1'
+Previous HEAD position was 5f68c7c6 Add performance test improvements and documentation for test_tiktoken.py
+HEAD is now at 260b3349 ARM架构优化：内存对齐、字符串操作、缓存大小、NEON指令支持和并行处理
+   Compiling tokenizers v0.22.3-dev.0 (/Users/a111/Desktop/code/tokenizers/tokenizers)
+    Finished `release` profile [optimized] target(s) in 3.21s
+==============
+num_threads: 1, data size: 24.59 KB, documents: 10 Avg Length: 1662
+tiktoken 	10.65 MB  / s
+huggingface 	5.33 MB / s
+==============
+num_threads: 1, data size: 24.04 MB, documents: 10000 Avg Length: 1659
+tiktoken 	14.99 MB  / s
+huggingface 	7.46 MB / s
+==============
+num_threads: 1, data size: 1.11 MB, documents: 10000 Avg Length: 116
+tiktoken 	7.73 MB  / s
+huggingface 	6.52 MB / s
+==============
+num_threads: 2, data size: 24.59 KB, documents: 10 Avg Length: 1662
+tiktoken 	12.16 MB  / s
+huggingface 	7.20 MB / s
+==============
+num_threads: 2, data size: 24.04 MB, documents: 10000 Avg Length: 1659
+tiktoken 	14.87 MB  / s
+huggingface 	9.84 MB / s
+==============
+num_threads: 2, data size: 1.11 MB, documents: 10000 Avg Length: 116
+tiktoken 	7.71 MB  / s
+huggingface 	6.11 MB / s
+==============
+num_threads: 4, data size: 24.59 KB, documents: 10 Avg Length: 1662
+tiktoken 	15.18 MB  / s
+huggingface 	10.59 MB / s
+==============
+num_threads: 4, data size: 24.04 MB, documents: 10000 Avg Length: 1659
+tiktoken 	32.88 MB  / s
+huggingface 	18.09 MB / s
+==============
+num_threads: 4, data size: 1.11 MB, documents: 10000 Avg Length: 116
+tiktoken 	9.30 MB  / s
+huggingface 	9.93 MB / s
+==============
+num_threads: 8, data size: 24.59 KB, documents: 10 Avg Length: 1662
+tiktoken 	15.84 MB  / s
+huggingface 	11.93 MB / s
+==============
+num_threads: 8, data size: 24.04 MB, documents: 10000 Avg Length: 1659
+tiktoken 	43.40 MB  / s
+huggingface 	17.77 MB / s
+==============
+num_threads: 8, data size: 1.11 MB, documents: 10000 Avg Length: 116
+tiktoken 	9.40 MB  / s
+huggingface 	14.33 MB / s
