@@ -155,6 +155,20 @@ class TestTokenizer:
         output = tokenizer.encode_batch(["my name is john", ("my name is john", "pair")])
         assert len(output) == 2
 
+    def test_encode_batch_fast_text_inputs(self):
+        tokenizer = Tokenizer(BPE())
+        tokenizer.add_tokens(["my", "name", "is", "john", "pair"])
+
+        output = tokenizer.encode_batch_fast(["my name is john", ("my name is john", "pair")])
+
+        assert len(output) == 2
+        assert output[0].ids == [0, 1, 2, 3]
+        assert output[0].type_ids == [0, 0, 0, 0]
+        assert output[0].offsets == [(0, 0), (0, 0), (0, 0), (0, 0)]
+        assert output[1].ids == [0, 1, 2, 3, 4]
+        assert output[1].type_ids == [0, 0, 0, 0, 1]
+        assert output[1].offsets == [(0, 0), (0, 0), (0, 0), (0, 0), (0, 0)]
+
     def test_encode_formats(self, bert_files):
         tokenizer = BertWordPieceTokenizer(bert_files["vocab"])
 

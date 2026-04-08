@@ -271,8 +271,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for TextInputSequence<'py> {
 
     fn extract(ob: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         let err = exceptions::PyTypeError::new_err("TextInputSequence must be str");
-        if let Ok(s) = ob.extract::<String>() {
-            Ok(Self(s.into()))
+        if let Ok(s) = ob.cast::<PyString>() {
+            Ok(Self(s.to_cow().map(|value| value.into_owned())?.into()))
         } else {
             Err(err)
         }
@@ -490,6 +490,36 @@ pub struct PyTokenizer {
 }
 
 impl PyTokenizer {
+    fn extract_owned_text(ob: &Bound<'_, PyAny>) -> PyResult<String> {
+        let s = ob.cast::<PyString>()?;
+        s.to_cow().map(|value| value.into_owned())
+    }
+
+    fn extract_owned_text_pair(ob: &Bound<'_, PyAny>) -> PyResult<Option<(String, String)>> {
+        if let Ok(tup) = ob.cast::<PyTuple>() {
+            if tup.len() == 2 {
+                let first = Self::extract_owned_text(&tup.get_item(0)?)?;
+                let second = Self::extract_owned_text(&tup.get_item(1)?)?;
+                return Ok(Some((first, second)));
+            }
+        }
+
+        if let Ok(lst) = ob.cast::<PyList>() {
+            if lst.len() == 2 {
+                let first = lst.get_item(0)?;
+                let second = lst.get_item(1)?;
+                if first.cast::<PyString>().is_ok() && second.cast::<PyString>().is_ok() {
+                    return Ok(Some((
+                        Self::extract_owned_text(&first)?,
+                        Self::extract_owned_text(&second)?,
+                    )));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
     fn new(tokenizer: Tokenizer) -> Self {
         PyTokenizer { tokenizer }
     }
@@ -547,28 +577,11 @@ impl PyTokenizer {
                 let a = Self::extract_pretok_seq(it)?;
                 out.push(tk::EncodeInput::Single(a.into()));
             } else {
-                // Raw text: pair?
-                if let Ok(tup) = it.cast::<PyTuple>() {
-                    if tup.len() == 2 {
-                        let a: String = tup.get_item(0)?.extract()?;
-                        let b: String = tup.get_item(1)?.extract()?;
-                        out.push(tk::EncodeInput::Dual(a.into(), b.into()));
-                        continue;
-                    }
+                if let Some((a, b)) = Self::extract_owned_text_pair(it)? {
+                    out.push(tk::EncodeInput::Dual(a.into(), b.into()));
+                    continue;
                 }
-                if let Ok(lst) = it.cast::<PyList>() {
-                    if lst.len() == 2
-                        && lst.get_item(0)?.cast::<PyString>().is_ok()
-                        && lst.get_item(1)?.cast::<PyString>().is_ok()
-                    {
-                        let a: String = lst.get_item(0)?.extract()?;
-                        let b: String = lst.get_item(1)?.extract()?;
-                        out.push(tk::EncodeInput::Dual(a.into(), b.into()));
-                        continue;
-                    }
-                }
-                // Single raw text
-                let s: String = it.extract()?;
+                let s = Self::extract_owned_text(it)?;
                 out.push(tk::EncodeInput::Single(s.into()));
             }
         }
@@ -585,7 +598,7 @@ impl PyTokenizer {
             let seq = Self::extract_pretok_seq(sequence)?;
             seq.into()
         } else {
-            let s: String = sequence.extract()?;
+            let s = Self::extract_owned_text(sequence)?;
             s.into()
         };
 
@@ -594,7 +607,7 @@ impl PyTokenizer {
                 let seq = Self::extract_pretok_seq(pair)?;
                 seq.into()
             } else {
-                let s: String = pair.extract()?;
+                let s = Self::extract_owned_text(pair)?;
                 s.into()
             };
             Ok(tk::EncodeInput::Dual(owned_sequence, owned_pair))
@@ -1222,15 +1235,7 @@ impl PyTokenizer {
         is_pretokenized: bool,
         add_special_tokens: bool,
     ) -> PyResult<Vec<PyEncoding>> {
-        let mut items = Vec::<tk::EncodeInput>::with_capacity(input.len());
-        for item in &input {
-            let item: tk::EncodeInput = if is_pretokenized {
-                item.extract::<PreTokenizedEncodeInput>()?.into()
-            } else {
-                item.extract::<TextEncodeInput>()?.into()
-            };
-            items.push(item);
-        }
+        let items = Self::build_owned_encode_inputs(&input, is_pretokenized)?;
         py.detach(|| {
             ToPyResult(
                 self.tokenizer
@@ -1341,15 +1346,7 @@ impl PyTokenizer {
         is_pretokenized: bool,
         add_special_tokens: bool,
     ) -> PyResult<Vec<PyEncoding>> {
-        let mut items = Vec::<tk::EncodeInput>::with_capacity(input.len());
-        for item in &input {
-            let item: tk::EncodeInput = if is_pretokenized {
-                item.extract::<PreTokenizedEncodeInput>()?.into()
-            } else {
-                item.extract::<TextEncodeInput>()?.into()
-            };
-            items.push(item);
-        }
+        let items = Self::build_owned_encode_inputs(&input, is_pretokenized)?;
         py.detach(|| {
             ToPyResult(
                 self.tokenizer

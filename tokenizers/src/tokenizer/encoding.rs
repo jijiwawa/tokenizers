@@ -69,6 +69,23 @@ impl Encoding {
         }
     }
 
+    pub(crate) fn push(
+        &mut self,
+        id: u32,
+        token: String,
+        offsets: Offsets,
+        word: Option<u32>,
+        type_id: u32,
+    ) {
+        self.ids.push(id);
+        self.type_ids.push(type_id);
+        self.tokens.push(token);
+        self.words.push(word);
+        self.offsets.push(offsets);
+        self.special_tokens_mask.push(0);
+        self.attention_mask.push(1);
+    }
+
     pub fn from_tokens(tokens: Vec<Token>, type_id: u32) -> Self {
         let length = tokens.len();
         let (ids, tokens, offsets) = tokens.into_iter().fold(
@@ -578,13 +595,7 @@ impl std::iter::FromIterator<(u32, String, (usize, usize), Option<u32>, u32)> fo
         let mut encoding = Self::with_capacity(length);
 
         for (id, token, offsets, word, type_id) in items {
-            encoding.ids.push(id);
-            encoding.tokens.push(token);
-            encoding.offsets.push(offsets);
-            encoding.type_ids.push(type_id);
-            encoding.words.push(word);
-            encoding.special_tokens_mask.push(0);
-            encoding.attention_mask.push(1);
+            encoding.push(id, token, offsets, word, type_id);
         }
 
         encoding

@@ -148,17 +148,26 @@ impl PreTokenizedString {
                 OffsetType::Char => Some(BytesToCharOffsetConverter::new(&self.original)),
                 OffsetType::Byte => None,
                 OffsetType::None => {
-                    let tokens = self
+                    let total_tokens = self
                         .splits
-                        .into_iter()
-                        .flat_map(|split| {
-                            split.tokens.unwrap().into_iter().map(|token| {
-                                // Replace this with the actual fields you need for the Encoding type
-                                (token.id, String::with_capacity(0), (0, 0), None, 0)
-                            })
-                        })
-                        .collect();
-                    return Ok(tokens);
+                        .iter()
+                        .map(|split| split.tokens.as_ref().map_or(0, Vec::len))
+                        .sum();
+                    let mut encoding = Encoding::with_capacity(total_tokens);
+
+                    for (idx, split) in self.splits.into_iter().enumerate() {
+                        let word = if word_idx.is_some() {
+                            word_idx
+                        } else {
+                            Some(idx as u32)
+                        };
+
+                        for token in split.tokens.unwrap() {
+                            encoding.push(token.id, String::new(), (0, 0), word, type_id);
+                        }
+                    }
+
+                    return Ok(encoding);
                 }
             };
 

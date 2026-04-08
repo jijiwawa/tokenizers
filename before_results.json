@@ -1,0 +1,65 @@
+{
+  "config": {
+    "threads": 1,
+    "warmups": 1,
+    "runs": 10,
+    "documents": 10000,
+    "dataset": "facebook/xnli",
+    "dataset_config": "all_languages",
+    "dataset_split": "train",
+    "document_mode": "long",
+    "language": "en",
+    "total_bytes": 25209439,
+    "tokenizer_json": "/Users/a111/Desktop/code/tokenizers/llama3_tokenizer/LLM-Research/Meta-Llama-3___1-8B/tokenizer.json",
+    "tiktoken_bpe": "/Users/a111/Desktop/code/tokenizers/llama3_tokenizer/LLM-Research/Meta-Llama-3___1-8B/original/tokenizer.model",
+    "py_src": "/Users/a111/Desktop/code/tokenizers/bindings/python/py_src"
+  },
+  "results": [
+    {
+      "engine": "tiktoken",
+      "samples_mb_s": [
+        12.184608135754589,
+        12.823827176301908,
+        9.946312816259718,
+        10.206156818177915,
+        10.77781336640069,
+        12.490556412389834,
+        11.08847631763682,
+        11.476015723967649,
+        11.806969104547479,
+        12.352086652101539
+      ],
+      "summary": {
+        "mean_mb_s": 11.515282252353813,
+        "stdev_mb_s": 0.9888157610837132,
+        "cv_percent": 8.58698674868861,
+        "min_mb_s": 9.946312816259718,
+        "max_mb_s": 12.823827176301908,
+        "range_mb_s": 2.8775143600421895
+      }
+    },
+    {
+      "engine": "huggingface",
+      "samples_mb_s": [
+        4.357999083688875,
+        4.357110975801956,
+        4.37364522765858,
+        4.428358711732205,
+        4.268499011754005,
+        4.3066521066200885,
+        4.339126414344134,
+        4.006254080613874,
+        4.154161706963858,
+        4.506295415552604
+      ],
+      "summary": {
+        "mean_mb_s": 4.309810273473018,
+        "stdev_mb_s": 0.14151695284240198,
+        "cv_percent": 3.283600526766621,
+        "min_mb_s": 4.006254080613874,
+        "max_mb_s": 4.506295415552604,
+        "range_mb_s": 0.5000413349387296
+      }
+    }
+  ]
+}
