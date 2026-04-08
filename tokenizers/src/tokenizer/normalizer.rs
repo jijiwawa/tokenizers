@@ -446,6 +446,31 @@ impl NormalizedString {
         self.transform_range(Range::Original(..), dest, initial_offset)
     }
 
+    pub(crate) fn map_bytes<F>(&mut self, map: F) -> &mut Self
+    where
+        F: Fn(u8) -> char,
+    {
+        if self.normalized.is_empty() {
+            return self;
+        }
+
+        let normalized = std::mem::take(&mut self.normalized).into_bytes();
+        let alignments = std::mem::take(&mut self.alignments);
+
+        let mut new_normalized = String::with_capacity(normalized.len() * 2);
+        let mut new_alignments = Vec::with_capacity(normalized.len() * 2);
+
+        for (byte, align) in normalized.into_iter().zip(alignments.into_iter()) {
+            let mapped = map(byte);
+            new_normalized.push(mapped);
+            new_alignments.extend(std::iter::repeat_n(align, mapped.len_utf8()));
+        }
+
+        self.normalized = new_normalized;
+        self.alignments = new_alignments;
+        self
+    }
+
     /// Applies NFD normalization
     pub fn nfd(&mut self) -> &mut Self {
         self.transform(self.get().to_owned().nfd(), 0);
