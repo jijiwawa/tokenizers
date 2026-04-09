@@ -8,9 +8,6 @@ mod word;
 
 use std::hash::{Hash, Hasher};
 
-
-/// 带有内存对齐的Pair类型，优化ARM架构下的访问效率
-#[repr(align(16))] // ARM64上16字节对齐
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pair(pub u32, pub u32);
 
@@ -41,6 +38,30 @@ impl Ord for Pair {
 impl Hash for Pair {
     fn hash<H: Hasher>(&self, state: &mut H) {
         (self.0, self.1).hash(state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Pair;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    #[test]
+    fn pair_keeps_tuple_semantics() {
+        let pair = Pair(7, 11);
+        let tuple = (7u32, 11u32);
+
+        let mut pair_hasher = DefaultHasher::new();
+        pair.hash(&mut pair_hasher);
+
+        let mut tuple_hasher = DefaultHasher::new();
+        tuple.hash(&mut tuple_hasher);
+
+        assert_eq!(pair_hasher.finish(), tuple_hasher.finish());
+        assert_eq!(pair, tuple.into());
+        assert_eq!(<(u32, u32)>::from(pair), tuple);
+        assert!(Pair(1, 2) < Pair(1, 3));
     }
 }
 

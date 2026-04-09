@@ -1,6 +1,7 @@
 use super::{
     normalizer::Range, Model, NormalizedString, Normalizer, Offsets, PreTokenizedString, Token,
 };
+use crate::utils::neon_utils::contains_any_ascii_byte;
 use ahash::{AHashMap, AHashSet};
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use regex::Regex;
@@ -95,6 +96,39 @@ impl std::hash::Hash for AddedToken {
 
 type MatchingSet = (AhoCorasick, Vec<u32>);
 
+#[derive(Clone, Copy, Debug, Default)]
+struct MatchingPrefilter {
+    all_tokens_required_byte: Option<u8>,
+    non_special_required_byte: Option<u8>,
+    has_any_token: bool,
+    has_any_non_special_token: bool,
+}
+
+impl MatchingPrefilter {
+    fn has_active_tokens(&self, encode_special_tokens: bool) -> bool {
+        if encode_special_tokens {
+            self.has_any_non_special_token
+        } else {
+            self.has_any_token
+        }
+    }
+
+    fn can_skip(&self, sentence: &str, encode_special_tokens: bool) -> bool {
+        if !self.has_active_tokens(encode_special_tokens) {
+            return true;
+        }
+
+        let required_byte = if encode_special_tokens {
+            self.non_special_required_byte
+        } else {
+            self.all_tokens_required_byte
+        };
+
+        required_byte
+            .is_some_and(|byte| !contains_any_ascii_byte(sentence, std::slice::from_ref(&byte)))
+    }
+}
+
 static STARTS_WITH_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\w").unwrap());
 static ENDS_WITH_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\w$").unwrap());
 static RIGHTMOST_SPACE_AT_START: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*").unwrap());
@@ -120,6 +154,60 @@ fn space_rightmost_at_start(sentence: &str) -> usize {
         match_.end()
     } else {
         0
+    }
+}
+
+fn required_ascii_byte<'a, I>(patterns: I) -> Option<u8>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut iter = patterns.into_iter();
+    let first = iter.next()?;
+    if !first.is_ascii() {
+        return None;
+    }
+
+    let mut intersection = [false; 256];
+    for &byte in first.as_bytes() {
+        intersection[byte as usize] = true;
+    }
+
+    for pattern in iter {
+        if !pattern.is_ascii() {
+            return None;
+        }
+
+        let mut current = [false; 256];
+        for &byte in pattern.as_bytes() {
+            current[byte as usize] = true;
+        }
+
+        for index in 0..intersection.len() {
+            intersection[index] &= current[index];
+        }
+    }
+
+    intersection
+        .iter()
+        .position(|&present| present)
+        .map(|index| index as u8)
+}
+
+fn build_prefilter<'a, I>(patterns: I) -> MatchingPrefilter
+where
+    I: IntoIterator<Item = (&'a AddedToken, &'a str)>,
+{
+    let patterns: Vec<_> = patterns.into_iter().collect();
+    let non_special_patterns: Vec<_> = patterns
+        .iter()
+        .filter_map(|(token, pattern)| (!token.special).then_some(*pattern))
+        .collect();
+
+    MatchingPrefilter {
+        all_tokens_required_byte: required_ascii_byte(patterns.iter().map(|(_, pattern)| *pattern)),
+        non_special_required_byte: required_ascii_byte(non_special_patterns.iter().copied()),
+        has_any_token: !patterns.is_empty(),
+        has_any_non_special_token: !non_special_patterns.is_empty(),
     }
 }
 ///
@@ -159,6 +247,10 @@ pub struct AddedVocabulary {
     split_trie: MatchingSet,
     /// A RegexSet containing all the normalized patterns used to split on AddedTokens
     split_normalized_trie: MatchingSet,
+    /// Fast-path prefilter for original matching.
+    split_trie_prefilter: MatchingPrefilter,
+    /// Fast-path prefilter for normalized matching.
+    split_normalized_trie_prefilter: MatchingPrefilter,
 
     /// Whether or not special tokens should be splitted when encoding. This is equivalent to ignoring them
     encode_special_tokens: bool,
@@ -182,6 +274,8 @@ impl AddedVocabulary {
             special_tokens_set: AHashSet::new(),
             split_trie: (trie, vec![]),
             split_normalized_trie: (normalized_trie, vec![]),
+            split_trie_prefilter: MatchingPrefilter::default(),
+            split_normalized_trie_prefilter: MatchingPrefilter::default(),
             encode_special_tokens: false,
         }
     }
@@ -342,6 +436,8 @@ impl AddedVocabulary {
             .partition(|(token, _)| token.normalized);
 
         let (tokens, ids): (Vec<&AddedToken>, Vec<u32>) = non_normalized.into_iter().unzip();
+        self.split_trie_prefilter =
+            build_prefilter(tokens.iter().map(|token| (*token, token.content.as_str())));
         let trie = AhoCorasickBuilder::new()
             .match_kind(MatchKind::LeftmostLongest)
             .build(tokens.iter().map(|token| &token.content))
@@ -359,6 +455,12 @@ impl AddedVocabulary {
                 content
             })
             .collect();
+        self.split_normalized_trie_prefilter = build_prefilter(
+            ntokens
+                .iter()
+                .zip(patterns.iter())
+                .map(|(token, content)| (*token, content.get())),
+        );
         let normalized_trie = AhoCorasickBuilder::new()
             .match_kind(MatchKind::LeftmostLongest)
             .build(patterns.iter().map(|content| content.get()))
@@ -465,10 +567,18 @@ impl AddedVocabulary {
     ) -> PreTokenizedString {
         let mut pretokenized: PreTokenizedString = sequence.into();
 
-        // 1. We extract all the non-normalized tokens from the non-normalized string
-        pretokenized
-            .split(|_, sequence| Ok(self.split_with_indices(sequence, &self.split_trie)))
-            .expect("AddedVocabulary bad split");
+        // 1. Extract non-normalized tokens from the original string when a match is possible.
+        if self
+            .split_trie_prefilter
+            .has_active_tokens(self.encode_special_tokens)
+            && !self
+                .split_trie_prefilter
+                .can_skip(sequence, self.encode_special_tokens)
+        {
+            pretokenized
+                .split(|_, sequence| Ok(self.split_with_indices(sequence, &self.split_trie)))
+                .expect("AddedVocabulary bad split");
+        }
 
         // <s> normalized = False
         // "I read a book   <s>Hey" -> "I read a book", "   <s>", "Hey"
@@ -483,12 +593,24 @@ impl AddedVocabulary {
         // "I read a [DAY] monday" -> "I read a " "[DAY]", "book monday"
         //                                         320055
         // 2. Then extract the normalized tokens from the normalized pieces of the string
-        pretokenized
-            .split(|_, mut sequence| {
-                normalizer.map(|n| n.normalize(&mut sequence));
-                Ok(self.split_with_indices(sequence, &self.split_normalized_trie))
-            })
-            .expect("AddedVocabulary bad split");
+        if self
+            .split_normalized_trie_prefilter
+            .has_active_tokens(self.encode_special_tokens)
+        {
+            pretokenized
+                .split(|_, mut sequence| {
+                    normalizer.map(|n| n.normalize(&mut sequence));
+                    if self
+                        .split_normalized_trie_prefilter
+                        .can_skip(sequence.get(), self.encode_special_tokens)
+                    {
+                        Ok(vec![(sequence, None)])
+                    } else {
+                        Ok(self.split_with_indices(sequence, &self.split_normalized_trie))
+                    }
+                })
+                .expect("AddedVocabulary bad split");
+        }
 
         // ["I read a book", "   <s>", "Hey"] -> ["▁I read a book", "▁   <s>", "▁Hey"]
         // ["▁I read a book", "▁   <s>", "▁Hey"] -> [.., "▁   ", "<s>", "▁Hey"]
@@ -851,6 +973,57 @@ mod tests {
         let vocab = AddedVocabulary::new();
         let matches = vocab.find_matches("", &vocab.split_trie);
         assert_eq!(matches, vec![(None, (0, 0))]);
+    }
+
+    #[test]
+    fn prefilter_skips_ascii_miss() {
+        let model = ModelMock::new(&[]);
+        let mut vocab = AddedVocabulary::new();
+        let normalizer: Option<&NormalizerWrapper> = None;
+
+        vocab.add_special_tokens(
+            &[
+                AddedToken::from("<|foo|>", true),
+                AddedToken::from("<|bar|>", true),
+            ],
+            &model,
+            normalizer,
+        );
+
+        assert_eq!(
+            vocab.split_trie_prefilter.all_tokens_required_byte,
+            Some(b'<')
+        );
+
+        let result = vocab.extract_and_normalize(normalizer, "hello world");
+        assert_eq!(simplify_output(&result), vec![("hello world", None)]);
+    }
+
+    #[test]
+    fn prefilter_keeps_llama_style_matches() {
+        let model = ModelMock::new(&[]);
+        let mut vocab = AddedVocabulary::new();
+        let normalizer: Option<&NormalizerWrapper> = None;
+
+        vocab.add_special_tokens(
+            &[
+                AddedToken::from("<|foo|>", true),
+                AddedToken::from("<|bar|>", true),
+            ],
+            &model,
+            normalizer,
+        );
+
+        let result = vocab.extract_and_normalize(normalizer, "hello <|foo|> world <|bar|>");
+        assert_eq!(
+            simplify_output(&result),
+            vec![
+                ("hello ", None),
+                ("<|foo|>", Some(vec![0])),
+                (" world ", None),
+                ("<|bar|>", Some(vec![1])),
+            ]
+        );
     }
 
     #[test]

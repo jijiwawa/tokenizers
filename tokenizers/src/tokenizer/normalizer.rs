@@ -446,10 +446,7 @@ impl NormalizedString {
         self.transform_range(Range::Original(..), dest, initial_offset)
     }
 
-    pub(crate) fn map_bytes<F>(&mut self, map: F) -> &mut Self
-    where
-        F: Fn(u8) -> char,
-    {
+    pub(crate) fn map_bytes(&mut self, map: &[char; 256]) -> &mut Self {
         if self.normalized.is_empty() {
             return self;
         }
@@ -461,7 +458,7 @@ impl NormalizedString {
         let mut new_alignments = Vec::with_capacity(normalized.len() * 2);
 
         for (byte, align) in normalized.into_iter().zip(alignments.into_iter()) {
-            let mapped = map(byte);
+            let mapped = map[byte as usize];
             new_normalized.push(mapped);
             new_alignments.extend(std::iter::repeat_n(align, mapped.len_utf8()));
         }

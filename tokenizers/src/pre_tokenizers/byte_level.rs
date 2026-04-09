@@ -12,7 +12,7 @@ use crate::utils::macro_rules_attribute;
 
 /// Converts bytes to unicode characters.
 /// See https://github.com/openai/gpt-2/blob/master/src/encoder.py#L9
-pub(crate) fn bytes_char() -> AHashMap<u8, char> {
+fn build_bytes_char_table() -> [char; 256] {
     let mut bs: Vec<u8> = vec![];
     bs.extend(b'!'..=b'~');
     bs.extend(b'\xA1'..=b'\xAC');
@@ -20,6 +20,7 @@ pub(crate) fn bytes_char() -> AHashMap<u8, char> {
 
     let mut cs: Vec<u32> = bs.iter().map(|i| *i as u32).collect();
     let mut n = 0;
+    let mut table = ['\0'; 256];
 
     for b in 0..=255u8 {
         if !bs.contains(&b) {
@@ -32,10 +33,11 @@ pub(crate) fn bytes_char() -> AHashMap<u8, char> {
     // Safety: cs contains all values from bs (between 0 and 255),
     // and some values of value 2⁸ + n, where n is between 0 and 255. This is between 255 and 512.
     // Both ranges are valid UTF-32 values (which is fully saturated until 0xD000)
-    bs.into_iter()
-        .zip(cs)
-        .map(|(f, t)| (f, unsafe { std::char::from_u32_unchecked(t) }))
-        .collect()
+    for (from, to) in bs.into_iter().zip(cs) {
+        table[from as usize] = unsafe { std::char::from_u32_unchecked(to) };
+    }
+
+    table
 }
 
 /// Regex that matches exactly one token.
@@ -44,9 +46,24 @@ static RE: LazyLock<SysRegex> = LazyLock::new(|| {
     SysRegex::new(r"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+")
         .unwrap()
 });
-static BYTES_CHAR: LazyLock<AHashMap<u8, char>> = LazyLock::new(bytes_char);
-static CHAR_BYTES: LazyLock<AHashMap<char, u8>> =
-    LazyLock::new(|| bytes_char().into_iter().map(|(c, b)| (b, c)).collect());
+static BYTES_CHAR: LazyLock<[char; 256]> = LazyLock::new(build_bytes_char_table);
+static CHAR_BYTES: LazyLock<AHashMap<char, u8>> = LazyLock::new(|| {
+    BYTES_CHAR
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(byte, ch)| (ch, byte as u8))
+        .collect()
+});
+
+pub(crate) fn bytes_char_table() -> &'static [char; 256] {
+    &BYTES_CHAR
+}
+
+#[inline]
+pub(crate) fn byte_to_char(byte: u8) -> char {
+    BYTES_CHAR[byte as usize]
+}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 /// Provides all the necessary steps to handle the BPE tokenization at the byte-level. Takes care
@@ -91,7 +108,7 @@ impl ByteLevel {
     }
 
     pub fn alphabet() -> AHashSet<char> {
-        BYTES_CHAR.values().copied().collect()
+        bytes_char_table().iter().copied().collect()
     }
 
     #[must_use]
@@ -130,7 +147,7 @@ impl PreTokenizer for ByteLevel {
             }
         })?;
         pretokenized.normalize(|normalized| {
-            normalized.map_bytes(|byte| BYTES_CHAR[&byte]);
+            normalized.map_bytes(bytes_char_table());
             Ok(())
         })
     }
@@ -148,8 +165,8 @@ impl Decoder for ByteLevel {
             .flat_map(|t| {
                 t.chars()
                     .try_fold(vec![], |mut acc, c| {
-                        CHAR_BYTES.get(&c).map(|b| {
-                            acc.push(*b);
+                        CHAR_BYTES.get(&c).copied().map(|b| {
+                            acc.push(b);
                             acc
                         })
                     })
@@ -189,15 +206,16 @@ impl PostProcessor for ByteLevel {
 }
 
 pub fn process_offsets(encoding: &mut Encoding, add_prefix_space: bool) {
+    let space = byte_to_char(b' ');
     encoding.process_tokens_with_offsets_mut(|(i, (token, offsets))| {
         let mut leading_spaces = token
             .chars()
-            .take_while(|c| *c == BYTES_CHAR[&b' '] || c.is_whitespace())
+            .take_while(|c| *c == space || c.is_whitespace())
             .count();
         let trailing_spaces = token
             .chars()
             .rev()
-            .take_while(|c| *c == BYTES_CHAR[&b' '] || c.is_whitespace())
+            .take_while(|c| *c == space || c.is_whitespace())
             .count();
 
         if leading_spaces > 0 || trailing_spaces > 0 {
